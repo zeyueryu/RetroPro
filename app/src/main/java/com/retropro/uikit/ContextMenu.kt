@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -380,17 +382,25 @@ fun Modifier.longPressable(
     // 布局一定早于手势，所以读到的是当前值（卡片滚动后也会被重新布局更新）。
     val origin = remember { mutableStateOf(Offset.Zero) }
     val haptics = LocalHapticFeedback.current
+
+    // ★ pointerInput(key) 的手势块只在**安装时**捕获一次闭包；key 不变时（例如列表项 id 没变、
+    //   只有内容变了）里面引用的回调会一直是旧的。origin 已经用 MutableState 规避了这个坑，
+    //   回调也必须同样处理 —— 否则长按菜单会作用在过期对象上。
+    //   （计分板 ScoreHalf 就是因为同一个原因把分数记错了局，见那里的注释。）
+    val latestOnTap by rememberUpdatedState(onTap)
+    val latestOnLongPressAt by rememberUpdatedState(onLongPressAt)
+
     this
         .onGloballyPositioned { coords ->
             origin.value = coords.positionInWindow()
         }
         .pointerInput(key) {
             detectTapAndLongPress(
-                onTap = onTap,
+                onTap = { latestOnTap() },
                 onLongPressAt = { local ->
                     if (haptic) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     // 局部偏移 → 窗口坐标
-                    onLongPressAt(origin.value + local)
+                    latestOnLongPressAt(origin.value + local)
                 },
             )
         }

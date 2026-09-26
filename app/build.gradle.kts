@@ -100,14 +100,22 @@ android {
         versionName = "1.2.0-m1"
         vectorDrawables { useSupportLibrary = true }
 
-        // 只打包 arm64 的 native 库。
+        // 只打包 arm64 的 native 库（默认）。
         //
         // sherpa-onnx 的 4 套 ABI 合计 122 MiB，而现役手机全是 arm64 ——
         // 裁掉其余三套能让 APK 从 ~148 MiB 降到 ~57 MiB，"更新只装小包"才真正成立。
         // 代价：**x86 模拟器与 32 位（armeabi-v7a）设备装不了**。
-        // 需要时把对应 ABI 加回来即可（本地临时验证可在命令行覆盖，见 README）。
+        //
+        // 模拟器调试时用属性覆盖，不必改这行：
+        //   gradle :app:assembleDebug -Pretropro.abis=arm64-v8a,x86_64
+        val abiList = (findProperty("retropro.abis") as String?)
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf("arm64-v8a")
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += abiList
         }
     }
 

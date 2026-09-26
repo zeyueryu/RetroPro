@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -496,6 +497,17 @@ private fun ScoreHalf(
         if (halfPressed) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
+    // ★★ 必须用 rememberUpdatedState 转发回调，不能把 onTap/onLongPress 直接塞进 pointerInput。
+    //
+    // 手势块只在**安装时**捕获一次闭包，而它的 key 是 `label`（「我」/「对方」）—— 永不变化。
+    // 于是「结束本局」后 `gameId` 虽然换成了新一局，手势里用的仍是最初那个闭包、
+    // 里面还攥着**旧局 id**：新一局点按不加分，球却记到了上一局。
+    // 真机/模拟器复现：第 3 局被点到 4 分，第 4 局恒为 0:0（rallies.gameId 全部指向上局）。
+    //
+    // rememberUpdatedState 让手势块保持稳定（不重装、不丢进行中的长按），同时每次调用都取最新闭包。
+    val latestOnTap by rememberUpdatedState(onTap)
+    val latestOnLongPress by rememberUpdatedState(onLongPress)
+
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -508,8 +520,8 @@ private fun ScoreHalf(
                 detectTapAndLongPress(
                     longPressMillis = LONG_PRESS_MS,
                     onPressChanged = { halfPressed = it },
-                    onTap = onTap,
-                    onLongPress = onLongPress,
+                    onTap = { latestOnTap() },
+                    onLongPress = { latestOnLongPress() },
                 )
             },
         contentAlignment = Alignment.Center,
