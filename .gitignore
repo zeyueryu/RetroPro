@@ -1,0 +1,41 @@
+# ---------------------------------------------------------------- 构建产物
+*.iml
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+build.log
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# ---------------------------------------------------------------- 密钥与签名
+# ★ 绝不能提交：密钥库是本 App 的唯一升级凭证，泄露 = 任何人可冒名发布
+keystore/
+*.jks
+*.keystore
+*.p12
+signing.properties
+release-signing/
+
+# ---------------------------------------------------------------- 体积过大的第三方二进制与模型
+# sherpa-onnx 预编译 AAR（48MB）+ SenseVoice-Small int8 模型（229MB）不入库，
+# 用 tools/fetch_deps.sh 拉取；参见 README「准备依赖」
+app/libs/*.aar
+app/src/main/assets/asr/
+models/
+
+# ---------------------------------------------------------------- 交付包
+# APK 走 GitHub Releases 分发，不进 git（单文件上限 100MB）
+*.apk
+*.aab
+*.idsig
+deliver/
+
+# ---------------------------------------------------------------- IDE / 系统
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

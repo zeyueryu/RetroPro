@@ -1,0 +1,22 @@
+# 统一换行符，避免 Windows / macOS 协作者互相污染 diff
+* text=auto eol=lf
+
+# 二进制文件不做任何行尾转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.onnx binary
+*.aar  binary
+*.jar  binary
+*.p12  binary
+*.jks  binary
+*.apk  binary
+
+# Windows 脚本保持 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Gradle wrapper 的 shell 脚本必须保持 LF，否则 Linux/macOS 下无法执行
+gradlew text eol=lf
+*.sh    text eol=lf

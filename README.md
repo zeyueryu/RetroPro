@@ -1,1 +1,197 @@
-# RetroPro
+# RetroPro · 羽毛球日记
+
+> **记分只是开始，复盘才是目的。**
+>
+> 一个完全离线的羽毛球「逐球复盘」记录 App —— 把每一分的得失记下来，而不只是记个比分。
+>
+> *An offline-first badminton journal app built with Kotlin & Jetpack Compose, focused on
+> point-by-point rally review with fully on-device speech recognition.*
+
+---
+
+## 为什么做这个
+
+打完一场球，通常只记得「赢了还是输了」。但真正决定胜负的往往是几个具体的球：
+接发球冒高、被动时的回球线路、关键时刻的连续失误。
+
+现有记分 App 的复盘点只到「一局」；而**逐球**记录才能回答「我到底丢在哪儿」。
+RetroPro 就是围绕这一点设计的：以「球」为最小单位记录，用标签 + 语音/文字心得
+把每一分的原因固化下来，再由统计把规律翻出来。
+
+全部数据留在本机，不联网、不上传、不需要账号。
+
+---
+
+## 核心特性
+
+| 模块 | 说明 |
+|---|---|
+| **逐球复盘** | 以「球」为最小记录单位：得分方、失分原因标签、文字或语音心得。可对任意一球回看与补录 |
+| **计分板** | 横屏计分界面，手动/自动记分；比分是唯一事实来源，局分与场分由逐球记录实时汇总 |
+| **语音记录** | 本地语音识别（sherpa-onnx + SenseVoice-Small int8），说出「我网前搓球下网」即自动解析成结构化记录；含 VAD 静音切分，**不上传任何音频** |
+| **装备管理** | 球拍 / 球线 / 穿线记录（含磅数与穿线师）/ 球 / 球鞋 / 球衣 / 手胶分类追踪，支持品牌标签与成本统计 |
+| **数据统计** | 胜率、得失分趋势、失分原因分布、机会球、按对手维度的交手统计与对比 |
+| **外观与材质** | MIUIX / HyperOS 风格；液态玻璃材质（模糊 + 折射 + 镜面高光），可在设置页一键关闭或切换档位 |
+| **深浅色** | 白底 / 黑底双主题，玻璃的暗化与折射参数按主题分别标定 |
+
+### 界面说明
+
+界面遵循 MIUIX（HyperOS）设计语言：超椭圆圆角、语义化配色、液态玻璃面板、
+按下时的横向拉伸与箭头位移微反馈。截图待补（当前为个人自用开发阶段）。
+
+---
+
+## 技术栈
+
+| 组件 | 版本 | 说明 |
+|---|---|---|
+| Kotlin | 2.4.x | 由 AGP 内置提供 |
+| Jetpack Compose | 1.12.x | 声明式 UI |
+| AGP / Gradle | 9.4.x / 9.6 | |
+| minSdk / targetSdk | 31（Android 12）/ 36 | |
+| Room | 2.8.x | 本地持久化，导出 schema 便于写迁移 |
+| MIUIX | 0.9.4 | HyperOS 风格组件库（Apache-2.0） |
+| Haze | 2.0 | 毛玻璃 / 折射材质（Apache-2.0） |
+| Backdrop | 2.0 | 液态玻璃折射，基于 AGSL RuntimeShader（Apache-2.0） |
+| sherpa-onnx | 1.13.8 | 端侧语音识别运行时（Apache-2.0） |
+| SenseVoice-Small int8 | 2024-07-17 | 中英日韩粤语音识别模型 |
+
+### 材质降级链（设计要点）
+
+不同设备的 GPU 能力差异很大，玻璃材质按能力**逐级降级**，永不白屏：
+
+```
+Backdrop 折射（AGSL RuntimeShader，API 33+）
+    ↓ 不支持折射 / 熔断
+Haze 玻璃（模糊 + 折射，API 33+）
+    ↓ API 31/32（Android 12 无 RuntimeShader）
+Haze 纯模糊（RenderEffect，API 31+）
+    ↓ 渲染异常熔断
+纯色卡片（App 依然完整可用）
+```
+
+渲染层的异常会按组件粒度熔断（`GlassGuard`），玻璃总开关可随时关闭。
+
+---
+
+## 数据模型
+
+```
+sessions（场次）
+  └── matches（比赛）
+        └── games（局：比分由 rallies 汇总）
+              └── rallies（球：得分方 + 失分原因标签 + 心得）★ 最小记录单位
+
+equipment：rackets / string_jobs（穿线）/ shuttles / shuttle_usages / gear_items / gear_tags
+meta：opponents / reminders / dashboard_cards
+```
+
+两条硬约束：
+
+1. **比分是唯一事实来源** —— `games.myScore / oppScore` 由 `rallies` 汇总，
+   局分与场分都是派生镜像；读取方一律比较比分，不读派生的结果字段。
+2. **跨表不变式收进事务** —— 任何改动 `rallies` 的写操作，都在同一个事务里跑完
+   `rallies → games → matches` 的一致化，避免散落在 ViewModel 里漏更新。
+
+数据库**禁用破坏性迁移**：schema 变更一律写显式 Migration，用户数据不丢。
+
+---
+
+## 构建
+
+### 前置要求
+
+- JDK 21（推荐 Android Studio 自带的 JBR）
+- Android SDK，含 **API 37** 平台与 build-tools
+- Gradle 9.6+（或自行生成 wrapper）
+
+### 步骤
+
+```bash
+git clone git@github.com:zeyueryu/RetroPro.git
+cd RetroPro
+
+# 1) 配置 SDK 路径
+echo 'sdk.dir=/path/to/Android/Sdk' > local.properties
+
+# 2) 拉取未入库的大文件：sherpa-onnx AAR（~50MB）+ 语音模型（~230MB）
+bash tools/fetch_deps.sh            # 中国大陆可加 MIRROR=ghfast
+
+# 3) 构建
+./gradlew :app:assembleDebug        # 或 gradle :app:assembleDebug
+```
+
+> **中国大陆网络提示**：Gradle 分发包默认走 `services.gradle.org`，
+> 若下载卡住，把 `gradle/wrapper/gradle-wrapper.properties` 里的 `distributionUrl`
+> 换成腾讯镜像 `https://mirrors.cloud.tencent.com/gradle/gradle-9.6.0-bin.zip` 即可。
+
+**为什么这两个大文件不入库**：sherpa-onnx 预编译 AAR 约 50 MB，
+SenseVoice 模型约 230 MB —— 二进制大文件放进 git 会让仓库无限膨胀，
+因此统一由 `tools/fetch_deps.sh` 拉取（脚本内含官方源与镜像开关）。
+
+### 发布签名（可选）
+
+仓库内**不含**任何密钥。需要出正式签名包时，在 `local.properties` 里补：
+
+```properties
+REPRO_STORE_FILE=/path/to/your.jks
+REPRO_STORE_PASSWORD=****
+REPRO_KEY_ALIAS=****
+REPRO_KEY_PASSWORD=****
+```
+
+四项缺任意一项，签名配置整体跳过 —— 此时仍可正常构建未签名包。
+配置齐全后 `gradle :app:assembleRelease` 会额外产出 v1+v2+v3 三签名齐全的
+`RetroPro-<版本>-signed.apk`。
+
+---
+
+## 项目结构
+
+```
+app/src/main/java/com/retropro/
+├── data/          数据层：Room 实体 / DAO / 仓储（跨表一致性在此保证）
+├── feature/       功能页：score 计分板 · review 逐球复盘 · record 记录
+│                  equipment 装备 · stats 统计 · voice 语音 · profile 设置
+├── glass/         液态玻璃渲染层（档位、能力检测、熔断、统一出口 GlassPanel）
+├── uikit/         自建组件与主题（AppColors / AppTypography / 上下文菜单 / 导航）
+└── util/          性能监控等工具
+
+tools/             开发脚本：图标生成、语音解析镜像、依赖拉取
+app/schemas/       Room 导出的 schema（版本管理用，便于写迁移）
+```
+
+---
+
+## 隐私
+
+- **完全离线**：核心功能不需要网络权限，不申请网络权限；无账号、无登录、无云端。
+- **语音不出本机**：录音仅在本机内存中做识别，不落盘、不上传；识别模型内置于 APK。
+- **数据自持**：数据库为本地 SQLite 文件，可随时自行导出备份。
+- 唯一需要的权限是 `RECORD_AUDIO`（语音记录功能），不使用时可拒绝。
+
+---
+
+## 已知限制
+
+- 语音识别模型较大（APK 约 300 MB），首次安装体积明显。
+- 玻璃折射需要 Android 13+；Android 12 上自动降级为纯模糊（视觉略有差异）。
+- 低内存设备会跳过折射档，直接使用模糊或纯色。
+- 目前仅支持羽毛球单一场地/个人使用场景，不支持约球、社交、排行榜等功能（有意为之）。
+
+---
+
+## 开源协议
+
+本项目基于 **Apache License 2.0** 发布，详见 [LICENSE](LICENSE)。
+第三方组件与商标声明见 [NOTICE](NOTICE)。
+
+简单说：你可以自由使用、修改、分发（包括商用），但需保留版权与许可声明，
+且不得使用本项目作者的名义做背书。
+
+---
+
+## 致谢
+
+站立在 Kotlin、Jetpack Compose、sherpa-onnx、SenseVoice、Silero VAD、MIUIX、Haze、Backdrop
+以及 AndroidX 的肩膀上 —— 没有这些开源项目，这个 App 不会存在。

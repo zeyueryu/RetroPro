@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 图标底色：取自 RP 标志原图的藏蓝背景 -->
+    <color name="ic_launcher_background">#0B2033</color>
+</resources>

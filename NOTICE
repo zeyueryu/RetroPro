@@ -1,0 +1,75 @@
+RetroPro — 羽毛球日记
+Copyright 2026 zeyueryu
+
+This product includes software developed as part of the RetroPro project
+(https://github.com/zeyueryu/RetroPro), licensed under the Apache License,
+Version 2.0.
+
+===============================================================================
+第三方组件与许可
+===============================================================================
+
+本项目在构建时依赖或运行时集成了以下第三方软件。各组件版权归其各自
+所有者所有，并按其原始许可发布：
+
+1. sherpa-onnx
+   https://github.com/k2-fsa/sherpa-onnx
+   License: Apache License 2.0
+   Copyright (c) k2-fsa / 语音识别开源社区
+   用途：本地离线语音识别（ASR）运行时，对应 app/libs/sherpa-onnx-<ver>.aar
+
+2. SenseVoice-Small 语音识别模型
+   https://github.com/FunAudioLLM/SenseVoice
+   License: 见上游仓库（模型由其作者发布）
+   用途：中文/英文/日文/韩文/粤语语音识别模型（app/src/main/assets/asr/）
+
+3. Silero VAD
+   https://github.com/snakers4/silero-vad
+   License: MIT
+   用途：语音活动检测，用于切分有效说话片段
+
+4. MIUIX (top.yukonga.miuix.kmp)
+   https://github.com/miuix-kotlin-multiplatform/miuix
+   License: Apache License 2.0
+   用途：UI 组件与设计语言（仅作为第三方 Compose 组件库使用）
+
+5. Haze (dev.chrisbanes.haze)
+   https://github.com/chrisbanes/haze
+   License: Apache License 2.0
+   用途：毛玻璃 / 折射材质
+
+6. Backdrop (io.github.kyant0:backdrop)
+   https://github.com/Kyant0/Backdrop
+   License: Apache License 2.0
+   用途：液态玻璃折射（AGSL RuntimeShader）
+
+7. AndroidX / Jetpack Compose
+   https://github.com/androidx/androidx
+   License: Apache License 2.0
+   用途：Android 基础框架、Compose UI、Room 持久化
+
+8. Kotlin / kotlinx.coroutines
+   https://github.com/JetBrains/kotlin
+   License: Apache License 2.0
+
+===============================================================================
+商标声明
+===============================================================================
+
+- "MIUI"、"HyperOS"、"MiSans" 等为小米科技有限责任公司的商标。
+  本项目仅在"视觉风格参考"意义上提及，与小米公司无任何隶属或背书关系，
+  也不包含小米的任何专有字体或资源文件。
+- "Android" 为 Google LLC 的商标。
+- "YONEX（尤尼克斯）"、"VICTOR（胜利）"、"LI-NING（李宁）" 等品牌名称
+  仅作为用户在装备记录中可选择的客观标识出现，商标权归各自所有者。
+- 羽毛球运动的规则与术语不构成任何第三方的知识产权。
+
+以上第三方名称的使用不表示任何形式的赞助、合作或背书。
+
+===============================================================================
+免责声明
+===============================================================================
+
+本软件按"原样"提供，不附带任何明示或暗示的担保。使用者需自行承担
+因使用本软件而产生的一切风险。详见 LICENSE 文件（Apache License 2.0）
+第 7、8 条。
