@@ -83,11 +83,29 @@ jobs:
           name: retropro-apk
           path: app/build/outputs/apk/release/*.apk
 
+      # ★ 硬闸门：tag 构建必须产出**已签名**包，否则直接失败。
+      #
+      # 血泪教训：签名 Secret 未配置时 AGP 会产出 `app-release-unsigned.apk`，
+      # 而 Release 步骤原来的 glob `*.apk` 会把它一起发出去 —— 用户下到的包根本装不上。
+      # 宁可让流水线红，也不要往公开 Release 里塞一个装不上的包。
+      - name: 校验产物已签名（未签名则拒绝发版）
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          SIGNED=$(ls app/build/outputs/apk/release/*-signed.apk 2>/dev/null | head -1 || true)
+          if [ -z "$SIGNED" ]; then
+            echo "::error::没有找到已签名 APK —— 说明签名 Secret 未配置，拒绝发布未签名包。"
+            echo "::error::请先在 Settings → Secrets and variables → Actions 配置 REPRO_KEYSTORE_BASE64 / REPRO_STORE_PASSWORD / REPRO_KEY_ALIAS / REPRO_KEY_PASSWORD 四个 Secret。"
+            exit 1
+          fi
+          echo "已签名产物：$SIGNED"
+          echo "SIGNED_APK=$SIGNED" >> "$GITHUB_ENV"
+
       - name: 发布到 Release（仅 tag 触发时）
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3.0.3
         with:
-          files: app/build/outputs/apk/release/*.apk
+          # 只发已签名包：glob 收窄为 *-signed.apk，未签名包永远进不了 Release
+          files: app/build/outputs/apk/release/*-signed.apk
           generate_release_notes: true
           draft: false
 
@@ -116,7 +134,7 @@ jobs:
             exit 0
           fi
 
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          APK=$(ls app/build/outputs/apk/release/*-signed.apk | head -1)
           echo "APK=$APK" >> "$GITHUB_ENV"
           echo "待上传：$APK（$TAG）"
 
