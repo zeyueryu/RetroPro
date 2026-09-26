@@ -61,7 +61,19 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 //  - 模型：上游 k2-fsa 官方发布页 + HuggingFace 国内镜像站
 
 private const val GITHUB_RELEASES = "https://github.com/zeyueryu/RetroPro/releases"
-private const val ATOMGIT_RELEASES = "https://atomgit.com/zeyueryu/RetroPro/releases"
+
+/**
+ * AtomGit（实际托管在 GitCode）上的 APK **直链**，点按钮直接下载，不再跳发布页。
+ *
+ * 路径规律（首个 AtomGit Release 回读 [browser_download_url] 实测得到，非拼凑）：
+ *  `.../releases/download/v{versionName}/RetroPro-{versionName}-signed.apk`
+ *
+ * 文件名来自 `signReleaseV123` 任务：产物名 `RetroPro-<versionTag>-signed.apk`，tag 为 `v<versionName>`。
+ * ⚠️ 一旦改了 gradle 里的产物命名（如去掉 `-signed` 后缀），这里必须同步改，否则 404。
+ */
+private val ATOMGIT_APK_DOWNLOAD =
+    "https://gitcode.com/zeyueryu/RetroPro/releases/download/v${BuildConfig.VERSION_NAME}" +
+        "/RetroPro-${BuildConfig.VERSION_NAME}-signed.apk"
 
 /** 上游官方模型发布页（tag `asr-models`），内含 int8 包与 silero_vad.onnx */
 private const val MODEL_GITHUB_PAGE = "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
@@ -328,7 +340,7 @@ fun VersionScreen(onBack: () -> Unit) {
                 dialogVisible = false
             },
             onOpenGithubApk = { open(GITHUB_RELEASES) },
-            onOpenAtomgitApk = { open(ATOMGIT_RELEASES) },
+            onOpenAtomgitApk = { open(ATOMGIT_APK_DOWNLOAD) },
             onOpenModelGithub = { open(MODEL_GITHUB_PAGE) },
             onOpenModelMirror = { open(MODEL_MIRROR_PAGE) },
         )
@@ -550,7 +562,7 @@ private fun ProgressBar(fraction: Float) {
  * 两个入口共用的 MIUIX 弹卡片（[OverlayDialog]，依赖外层 [MiuixPopupScope] 的 popupHost）。
  *
  * 分两组下载入口：
- *  - **安装包**：GitHub / AtomGit（浏览器打开 Releases）
+ *  - **安装包**：GitHub 打开发布页；AtomGit 走**直链**，点了直接下载 APK
  *  - **语音模型**：应用内下载（带进度、多源故障转移）+ GitHub / 镜像站两个兜底链接
  *
  * 用独立的 `visible`（显隐）+ `mode`（内容）两个状态，而不是"可空对话框对象"：

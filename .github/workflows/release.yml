@@ -114,7 +114,17 @@ jobs:
           if [ -z "$APK" ]; then
             APK=$(ls app/build/outputs/apk/release/*-signed.apk 2>/dev/null | head -1)
           fi
+          echo "=== 产物目录完整清单 ==="
+          ls -lh app/build/outputs/apk/release/ 2>&1
           echo "待校验产物：$APK"
+          # ★ 挑不到包必须硬失败。
+          #   原来这里只把空值写进 summary，随后 verify 被 `if [ ! -z "$APK" ]` 静默跳过 ——
+          #   本步骤照样报 success，真正的「产物缺失」一直藏到下游「校验产物已签名」才爆，
+          #   排查时被上层成功的假象带偏（第五次 CI 就是这么被误判的）。
+          if [ -z "$APK" ]; then
+            echo "::error::产物目录里没有 *-signed.apk —— signReleaseV123 没产出，或四项签名 Secret 未配齐"
+            exit 1
+          fi
           {
             echo "### 产物校验"
             echo ""
@@ -136,40 +146,6 @@ jobs:
             fi
           fi
 
-      # 失败时把现场写回仓库（无 token 时读不到日志/summary，只能让 CI 自己交代）。
-      # push 到 main 不会触发本 workflow（它只认 tags），故不会自激循环。
-      - name: 失败时落盘产物诊断
-        if: failure()
-        run: |
-          {
-            echo "=== 运行上下文 ==="
-            echo "workflow=${GITHUB_WORKFLOW} run=${GITHUB_RUN_ID} ref=${GITHUB_REF}"
-            echo "ANDROID_HOME=$ANDROID_HOME"
-            echo "RUNNER_OS=$RUNNER_OS"
-            echo "=== build-tools 目录 ==="
-            ls "$ANDROID_HOME/build-tools" 2>&1
-            echo "=== apksigner 实际位置 ==="
-            command -v apksigner 2>&1 || true
-            find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | head -3
-            echo "=== 产物目录 ==="
-            ls -1 app/build/outputs/apk/release/ 2>&1
-            echo "=== 各 APK 的签名档位（v1/v2/v3，按 --min-sdk-version 23 的口径）==="
-            for a in app/build/outputs/apk/release/*.apk; do
-              [ -e "$a" ] || continue
-              echo "--- $a"
-              "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$a" 2>&1 \
-                | grep -E "Verified using|Verifies|DOES NOT VERIFY|Exception|error" | head -6
-              echo "   退出码 ${PIPESTATUS[0]}"
-            done
-          } > ci-diag.txt
-          git config user.email "ci@actions"
-          git config user.name "github-actions"
-          git add ci-diag.txt
-          if git diff --cached --quiet; then echo "无变化"; else
-            git commit -q -m "ci(diag): 产物诊断（自动，可删）"
-            git push origin HEAD:main
-          fi
-
       - name: 存为构建产物
         uses: actions/upload-artifact@v7
         with:
@@ -184,6 +160,16 @@ jobs:
       - name: 校验产物已签名（未签名则拒绝发版）
         if: startsWith(github.ref, 'refs/tags/')
         run: |
+          # ★ 诊断先行：匿名 API 读不到本步骤的日志与 summary，
+          #   把各 glob 的原始结果打在 stdout，失败时不用再回传就能看到现场。
+          echo "=== [诊断] 目录全部 *.apk ==="
+          find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -printf '  %p  (%s bytes)\n' 2>&1
+          echo "=== [诊断] glob 1: RetroPro-*-signed.apk ==="
+          ls -1 app/build/outputs/apk/release/RetroPro-*-signed.apk 2>&1 | sed 's/^/  /'
+          echo "=== [诊断] glob 2: *-signed.apk ==="
+          ls -1 app/build/outputs/apk/release/*-signed.apk 2>&1 | sed 's/^/  /'
+          echo "=== [诊断] signReleaseV123 任务是否存在 ==="
+          ./gradlew :app:tasks --all 2>&1 | grep -i "signReleaseV123" || echo "  （任务未注册）"
           # ★ 只认 signReleaseV123 显式三签的产物 RetroPro-<ver>-signed.apk。
           #   目录里还有 AGP 单签（minSdk 高时 build 器只写 v3）的 app-release.apk，
           #   把 glob 放宽成 *-signed.apk 会把那个包误判成"签名通过"（假阳性）。
@@ -298,3 +284,44 @@ jobs:
           for a in d.get('assets') or []:
               print('  附件直链:', a.get('name'), '→', a.get('browser_download_url'))
           PY
+
+      # ★ 失败时把现场写回仓库。
+      #
+      #   ⚠️ 位置很关键：step 层的 `if: failure()` 只看**它前面的步骤**有没有失败。
+      #   本步骤原先排在「校验产物已签名」之前，那时失败还没发生，判定恒为 false
+      #   → 永远 skipped（第五次 CI 就踩了这个，所以一直没有 ci-diag.txt）。
+      #   现在放在最后，任何步骤失败都能命中。
+      #
+      #   另外匿名 API 读不到日志与 step summary，只能让 CI 自己把现场交代出来。
+      #   push 到 main 不会触发本 workflow（它只认 tags），故不会自激循环。
+      - name: 失败时落盘产物诊断
+        if: failure()
+        run: |
+          {
+            echo "=== 运行上下文 ==="
+            echo "workflow=${GITHUB_WORKFLOW} run=${GITHUB_RUN_ID} ref=${GITHUB_REF}"
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "RUNNER_OS=$RUNNER_OS"
+            echo "=== build-tools 目录 ==="
+            ls "$ANDROID_HOME/build-tools" 2>&1
+            echo "=== apksigner 实际位置 ==="
+            command -v apksigner 2>&1 || true
+            find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | head -3
+            echo "=== 产物目录 ==="
+            ls -1 app/build/outputs/apk/release/ 2>&1
+            echo "=== 各 APK 的签名档位（v1/v2/v3，按 --min-sdk-version 23 的口径）==="
+            for a in app/build/outputs/apk/release/*.apk; do
+              [ -e "$a" ] || continue
+              echo "--- $a"
+              "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$a" 2>&1 \
+                | grep -E "Verified using|Verifies|DOES NOT VERIFY|Exception|error" | head -6
+              echo "   退出码 ${PIPESTATUS[0]}"
+            done
+          } > ci-diag.txt
+          git config user.email "ci@actions"
+          git config user.name "github-actions"
+          git add ci-diag.txt
+          if git diff --cached --quiet; then echo "无变化"; else
+            git commit -q -m "ci(diag): 产物诊断（自动，可删）"
+            git push origin HEAD:main
+          fi
