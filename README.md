@@ -174,11 +174,35 @@ REPRO_KEY_PASSWORD=****
 四个缺任意一个时，流水线仍会正常构建并上传**未签名**包（只是不能用于覆盖升级）。
 单次运行约 4 分钟（依赖只有 ~50 MB 的 AAR，模型不参与构建）。
 
+在 GitHub Release 之外，若再配一个 `ATOMGIT_TOKEN`，同一次构建还会把 APK 同步到
+AtomGit 的 Release（未配置则自动跳过），见下节。
+
+### 同步到 AtomGit
+
+AtomGit 的仓库实际托管在 **GitCode**（`atomgit.com` 只是入口域名，SSH 地址是
+`git@gitcode.com:<owner>/<repo>.git`）。本项目把两边都配成一次推送：
+
+```bash
+# 一次性配置：给 all 这个远端加两条 push 地址（origin 仍是 GitHub，行为不变）
+git remote add all git@github.com:<owner>/<repo>.git
+git remote set-url --add --push all git@github.com:<owner>/<repo>.git
+git remote set-url --add --push all git@gitcode.com:<owner>/<repo>.git
+
+# 之后每天只需要这一条：代码 + 标签同时推到两个平台
+git sync            # = git push all main && git push all --tags
+```
+
+**发版产物**由 CI 自动同步，需要在仓库 Secret 里加一个 `ATOMGIT_TOKEN`
+（[gitcode.com/setting/token-classic](https://gitcode.com/setting/token-classic) 生成）。
+CI 用它调 GitCode 的 v5 接口：建 Release → 取预签名上传地址 → PUT 上传 → 回读附件直链。
+
+> SSH 密钥只能推代码，**发版必须用令牌** —— 两者不能互相替代。
+
 发版命令：
 
 ```bash
-git tag v1.1.14-m1
-git push origin v1.1.14-m1
+git tag v1.2.0-m1
+git sync            # 标签同时推到 GitHub 与 AtomGit；GitHub 侧随即触发 CI
 ```
 
 ---

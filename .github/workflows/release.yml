@@ -90,3 +90,69 @@ jobs:
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
           draft: false
+
+      # ---------------------------------------------------------------------
+      # 同步 APK 到 AtomGit（实际托管在 GitCode，故走 api.gitcode.com）
+      #
+      # 接口取自 GitCode 官方文档（逐条核对，非猜测）：
+      #   ① 建版本   POST /api/v5/repos/{owner}/{repo}/releases         {tag_name,name,body}
+      #   ② 取上传址 GET  .../releases/{tag}/upload_url?file_name=xxx  → {url, headers}
+      #   ③ 上传     PUT  <上一步返回的 url>，带上返回的 headers
+      #   ④ 回读     GET  .../releases/tags/{tag}                      → assets[].browser_download_url
+      #
+      # ⚠️ 这些接口**必须**带访问令牌（SSH 密钥只能推代码，不能发版）：
+      #   在 https://gitcode.com/setting/token-classic 生成，存为仓库 Secret `ATOMGIT_TOKEN`。
+      #   未配置时本步骤自动跳过（不会让流水线变红）。
+      # ---------------------------------------------------------------------
+      - name: 同步 APK 到 AtomGit / GitCode Release（仅 tag 触发时）
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          ATOMGIT_REPO: zeyueryu/RetroPro
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "${ATOMGIT_TOKEN:-}" ]; then
+            echo "::notice::未配置 ATOMGIT_TOKEN，跳过 AtomGit 同步（代码仍会随 git push 同步）"
+            exit 0
+          fi
+
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          echo "待上传：$APK（$TAG）"
+
+          # ① 建版本（已存在会返回非 201，不视为失败）
+          CODE=$(curl -sS -o /tmp/create.json -w '%{http_code}' -X POST \
+            "https://api.gitcode.com/api/v5/repos/${ATOMGIT_REPO}/releases" \
+            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"tag_name\":\"${TAG}\",\"name\":\"RetroPro ${TAG}\",\"body\":\"详见 GitHub Release 的说明\"}")
+          echo "建版本 → HTTP $CODE"
+
+          # ② 取预签名上传地址
+          curl -sS -o /tmp/upload.json --fail \
+            "https://api.gitcode.com/api/v5/repos/${ATOMGIT_REPO}/releases/${TAG}/upload_url?file_name=$(basename "$APK")" \
+            -H "Authorization: Bearer ${ATOMGIT_TOKEN}"
+
+          # ③ 上传（预签名 URL 要求 PUT + 返回的 headers）
+          python3 - <<'PY'
+          import json, os, urllib.request
+          spec = json.load(open('/tmp/upload.json'))
+          apk = os.environ['APK']
+          data = open(apk, 'rb').read()
+          req = urllib.request.Request(spec['url'], data=data, method='PUT')
+          for k, v in (spec.get('headers') or {}).items():
+              req.add_header(k, v)
+          with urllib.request.urlopen(req, timeout=900) as r:
+              print('上传 →', r.status, f'({len(data)/1048576:.1f} MiB)')
+          PY
+
+          # ④ 回读附件直链（供 App 内「AtomGit 下载」按钮使用）
+          curl -sS "https://api.gitcode.com/api/v5/repos/${ATOMGIT_REPO}/releases/tags/${TAG}" \
+            -H "Authorization: Bearer ${ATOMGIT_TOKEN}" > /tmp/release.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/release.json'))
+          print('Release:', d.get('name'), '| tag:', d.get('tag_name'))
+          for a in d.get('assets') or []:
+              print('  附件直链:', a.get('name'), '→', a.get('browser_download_url'))
+          PY
