@@ -1,5 +1,5 @@
 === 运行上下文 ===
-workflow=Build & Release APK run=36239535817 ref=refs/tags/v1.2.0-m1
+workflow=Build & Release APK run=36243682392 ref=refs/tags/v1.2.0-m2
 ANDROID_HOME=/usr/local/lib/android/sdk
 RUNNER_OS=Linux
 === build-tools 目录 ===
