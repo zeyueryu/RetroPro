@@ -136,6 +136,40 @@ jobs:
             fi
           fi
 
+      # 失败时把现场写回仓库（无 token 时读不到日志/summary，只能让 CI 自己交代）。
+      # push 到 main 不会触发本 workflow（它只认 tags），故不会自激循环。
+      - name: 失败时落盘产物诊断
+        if: failure()
+        run: |
+          {
+            echo "=== 运行上下文 ==="
+            echo "workflow=${GITHUB_WORKFLOW} run=${GITHUB_RUN_ID} ref=${GITHUB_REF}"
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "RUNNER_OS=$RUNNER_OS"
+            echo "=== build-tools 目录 ==="
+            ls "$ANDROID_HOME/build-tools" 2>&1
+            echo "=== apksigner 实际位置 ==="
+            command -v apksigner 2>&1 || true
+            find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | head -3
+            echo "=== 产物目录 ==="
+            ls -1 app/build/outputs/apk/release/ 2>&1
+            echo "=== 各 APK 的签名档位（v1/v2/v3，按 --min-sdk-version 23 的口径）==="
+            for a in app/build/outputs/apk/release/*.apk; do
+              [ -e "$a" ] || continue
+              echo "--- $a"
+              "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$a" 2>&1 \
+                | grep -E "Verified using|Verifies|DOES NOT VERIFY|Exception|error" | head -6
+              echo "   退出码 ${PIPESTATUS[0]}"
+            done
+          } > ci-diag.txt
+          git config user.email "ci@actions"
+          git config user.name "github-actions"
+          git add ci-diag.txt
+          if git diff --cached --quiet; then echo "无变化"; else
+            git commit -q -m "ci(diag): 产物诊断（自动，可删）"
+            git push origin HEAD:main
+          fi
+
       - name: 存为构建产物
         uses: actions/upload-artifact@v7
         with:
