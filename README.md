@@ -193,7 +193,8 @@ git sync            # = git push all main && git push all --tags
 ```
 
 **发版产物**由 CI 自动同步，需要在仓库 Secret 里加一个 `ATOMGIT_TOKEN`
-（[gitcode.com/setting/token-classic](https://gitcode.com/setting/token-classic) 生成）。
+（[gitcode.com/setting/token-classic](https://gitcode.com/setting/token-classic) 生成；
+工作流也兼容历史命名 `RELEASE`）。
 CI 用它调 GitCode 的 v5 接口：建 Release → 取预签名上传地址 → PUT 上传 → 回读附件直链。
 
 > SSH 密钥只能推代码，**发版必须用令牌** —— 两者不能互相替代。

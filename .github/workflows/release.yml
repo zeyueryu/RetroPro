@@ -125,7 +125,8 @@ jobs:
       - name: 同步 APK 到 AtomGit / GitCode Release（仅 tag 触发时）
         if: startsWith(github.ref, 'refs/tags/')
         env:
-          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          # 兼容两种 Secret 命名：规范名 ATOMGIT_TOKEN，或历史遗留的 RELEASE
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN || secrets.RELEASE }}
           ATOMGIT_REPO: zeyueryu/RetroPro
           TAG: ${{ github.ref_name }}
         run: |
