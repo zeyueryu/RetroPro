@@ -29,15 +29,23 @@ import kotlin.coroutines.coroutineContext
  * 每个文件可有多个候选源，**按顺序尝试**，任一源下载完成且字节数精确匹配即通过；
  * 不匹配就丢掉重新换源（字节数是唯一可信的完整性判据 —— 上游没有提供各文件的校验和）。
  *
- * | 文件 | 字节数 | 源 |
+ * | 文件 | 字节数 | 源（按优先级） |
  * |---|---|---|
- * | model.int8.onnx | 239,233,841 | hf-mirror → ModelScope |
+ * | model.int8.onnx | 239,233,841 | **ModelScope** → hf-mirror |
  * | tokens.txt | 315,894 | hf-mirror → ModelScope |
- * | silero_vad.onnx | 643,854 | GitHub 官方 → ModelScope（v5，2,313,101） |
+ * | silero_vad.onnx | 2,313,101 | **ModelScope v5** → ghfast(GitHub) → GitHub 官方 |
  *
- * ⚠️ silero_vad 两个源**不是同一个版本**：GitHub 是项目一直在用的那一版（643,854 字节），
+ * ⚠️ silero_vad 各源**不是同一个版本**：GitHub 是旧版（643,854 字节），
  * ModelScope 上是更新的 v5（2,313,101 字节）。两者都能被 sherpa-onnx 加载，
  * 所以把各自期望字节数写在 [Source.bytes] 上，谁成功就按谁校验。
+ *
+ * ⚠️ hf-mirror 的 Content-Length 在部分文件上虚标（如 tokens.txt 报 524,288 实发 315,894）。
+ *   Python 的 `urlopen` 会因此抛 IncompleteRead，而 Android 的 HttpURLConnection 不校验流
+ *   完整性、读到 EOF 即止，`written` 仍会等于 [Source.bytes] —— 故镜像站在 App 里可用，
+ *   但只放备位，避免任何依赖 Content-Length 的下游踩坑。
+ *
+ * ⚠️ github.com 的 releases/download 在国内多数网络下直连不通（实测 `Tunnel connection failed`），
+ *   已经从主源降级为最后一档兜底；日常下载一律走国内源。
  */
 internal object AsrModelPlugin {
 
@@ -59,13 +67,23 @@ internal object AsrModelPlugin {
         "https://www.modelscope.cn/models/gomodels/sherpa/resolve/master"
     private const val GITHUB_RELEASE =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
+    /** GitHub Releases 在国内多数网络下直连不通（实测 `Tunnel connection failed`），故只留作最后兜底 */
+    private const val GITHUB_MIRROR = "https://ghfast.top"
 
+    /**
+     * 实测各源吞吐（2026-09-26，各取 1~16 MiB 样本）：
+     *  ```
+     *  魔搭  model.int8.onnx  1.9~7.0 MiB/s   ← 最快
+     *  镜像站 model.int8.onnx  0.40 MiB/s     ← 慢 17 倍，228 MB 要下约 9 分钟
+     *  ```
+     * 所以主模型的主源定为魔搭；镜像站只留备位。
+     */
     val FILES: List<Spec> = listOf(
         Spec(
             SENSE_VOICE_FILE,
             listOf(
-                Source("镜像站", "$HF_MIRROR/$SENSE_VOICE_FILE", 239_233_841L),
                 Source("魔搭", "$MODELSCOPE/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/$SENSE_VOICE_FILE", 239_233_841L),
+                Source("镜像站", "$HF_MIRROR/$SENSE_VOICE_FILE", 239_233_841L),
             ),
         ),
         Spec(
@@ -78,8 +96,11 @@ internal object AsrModelPlugin {
         Spec(
             VAD_FILE,
             listOf(
-                Source("GitHub", "$GITHUB_RELEASE/$VAD_FILE", 643_854L),
+                // 镜像站的仓库里根本没有这个文件（实测 404），GitHub 直连又多数不通，
+                // 所以主源只能是魔搭 —— 它这里是 v5（2.3 MB），比 GitHub 那份更新。
                 Source("魔搭", "$MODELSCOPE/vad/$VAD_FILE", 2_313_101L),
+                Source("ghfast", "$GITHUB_MIRROR/$GITHUB_RELEASE/$VAD_FILE", 643_854L),
+                Source("GitHub", "$GITHUB_RELEASE/$VAD_FILE", 643_854L),
             ),
         ),
     )

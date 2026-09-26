@@ -76,11 +76,19 @@ private val ATOMGIT_APK_DOWNLOAD =
         "/RetroPro-${BuildConfig.VERSION_NAME}-signed.apk"
 
 /** 上游官方模型发布页（tag `asr-models`），内含 int8 包与 silero_vad.onnx */
-private const val MODEL_GITHUB_PAGE = "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
+private const val MODEL_GITHUB_PAGE =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
 
-/** HuggingFace 国内镜像站上的同名模型仓（已验证 200） */
-private const val MODEL_MIRROR_PAGE =
-    "https://hf-mirror.com/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+/**
+ * 模型仓在魔搭上的主页，对应 [AsrModelPlugin] 的首选下载源。
+ *
+ * 已实测：github.com 的发布页在当前网络下 `Tunnel connection failed`（直连不通），
+ * 所以「GitHub 官方」给的是 ghfast 代理版；国内日常走魔搭。
+ */
+private const val MODEL_MODELSCOPE_PAGE = "https://www.modelscope.cn/models/gomodels/sherpa"
+
+/** ghfast 代理版的上游发布页，给直连不通时的手动兜底（已验证 200） */
+private const val MODEL_GITHUB_MIRRORED = "https://ghfast.top/$MODEL_GITHUB_PAGE"
 
 /** 弹卡片圆角，对齐 [AppShapes.Card] 的 26dp */
 private val DialogCornerRadius = 26.dp
@@ -341,8 +349,8 @@ fun VersionScreen(onBack: () -> Unit) {
             },
             onOpenGithubApk = { open(GITHUB_RELEASES) },
             onOpenAtomgitApk = { open(ATOMGIT_APK_DOWNLOAD) },
-            onOpenModelGithub = { open(MODEL_GITHUB_PAGE) },
-            onOpenModelMirror = { open(MODEL_MIRROR_PAGE) },
+            onOpenModelGithub = { open(MODEL_GITHUB_MIRRORED) },
+            onOpenModelScope = { open(MODEL_MODELSCOPE_PAGE) },
         )
     }
 }
@@ -582,7 +590,7 @@ private fun VersionDialogCard(
     onOpenGithubApk: () -> Unit,
     onOpenAtomgitApk: () -> Unit,
     onOpenModelGithub: () -> Unit,
-    onOpenModelMirror: () -> Unit,
+    onOpenModelScope: () -> Unit,
 ) {
     val isUpdate = mode == DialogMode.UPDATE
     val title = if (isUpdate) "检查更新" else "更新日志"
@@ -682,8 +690,8 @@ private fun VersionDialogCard(
                 }
                 Box(Modifier.weight(1f)) {
                     SecondaryButton(
-                        text = "镜像站",
-                        onClick = onOpenModelMirror,
+                        text = "魔搭",
+                        onClick = onOpenModelScope,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
