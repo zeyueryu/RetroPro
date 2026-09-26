@@ -1,0 +1,23 @@
+=== 运行上下文 ===
+workflow=Build & Release APK run=36239535817 ref=refs/tags/v1.2.0-m1
+ANDROID_HOME=/usr/local/lib/android/sdk
+RUNNER_OS=Linux
+=== build-tools 目录 ===
+34.0.0
+35.0.0
+35.0.1
+36.0.0
+36.1.0
+37.0.0
+=== apksigner 实际位置 ===
+/usr/local/lib/android/sdk/build-tools/37.0.0/apksigner
+/usr/local/lib/android/sdk/build-tools/35.0.0/apksigner
+/usr/local/lib/android/sdk/build-tools/35.0.1/apksigner
+=== 产物目录 ===
+app-release-unsigned.apk
+baselineProfiles
+output-metadata.json
+=== 各 APK 的签名档位（v1/v2/v3，按 --min-sdk-version 23 的口径）===
+--- app/build/outputs/apk/release/app-release-unsigned.apk
+DOES NOT VERIFY
+   退出码 1
