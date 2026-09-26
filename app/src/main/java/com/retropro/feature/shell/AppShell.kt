@@ -43,6 +43,7 @@ import com.retropro.feature.profile.QuoteSettingsScreen
 import com.retropro.feature.profile.BackupScreen
 import com.retropro.feature.profile.ProfileViewModel
 import com.retropro.feature.profile.RemindersScreen
+import com.retropro.feature.profile.VersionScreen
 import com.retropro.feature.record.RecordViewModel
 import com.retropro.feature.review.RallyReviewScreen
 import com.retropro.feature.score.ScoreboardScreen
@@ -242,6 +243,10 @@ fun AppShell() {
                     onBack = { route = ShellRoute.Root },
                 )
 
+                ShellRoute.SettingsVersion -> VersionScreen(
+                    onBack = { route = ShellRoute.Root },
+                )
+
                 is ShellRoute.Scoreboard -> Unit // 已在上面全屏处理
 
                 is ShellRoute.CreateSession -> CreateSessionScreen(
@@ -290,6 +295,7 @@ fun AppShell() {
                         onOpenQuote = { route = ShellRoute.SettingsQuote },
                         onOpenReminders = { route = ShellRoute.SettingsReminders },
                         onOpenBackup = { route = ShellRoute.SettingsBackup },
+                        onOpenVersion = { route = ShellRoute.SettingsVersion },
                     )
                 }
             }
@@ -342,6 +348,9 @@ private sealed interface ShellRoute {
 
     /** 我的 → 备份与恢复 */
     data object SettingsBackup : ShellRoute
+
+    /** 我的 → 版本与更新（二级页，返回回「我的」） */
+    data object SettingsVersion : ShellRoute
 
     /**
      * 我的 → 外观 → 材质验证（**三级**）。

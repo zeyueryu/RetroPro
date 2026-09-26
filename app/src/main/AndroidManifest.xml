@@ -4,6 +4,11 @@
     <!-- 语音快速录入（设计方案 §7.2）。仅在用户按下录音时申请，不在启动时静默申请 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- 版本与更新：仅在用户点「检查更新」时访问 GitHub Releases API 比对版本号。
+         其余功能（记录 / 计分 / 统计 / 装备 / 语音识别）全部离线，不上传任何数据。
+         INTERNET 是普通权限，安装即授予，无需运行时申请。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- 语音识别本身走系统 SpeechRecognizer（联网、精度优先）。
          Android 11 起需要显式声明可查询的识别服务，否则 isRecognitionAvailable() 会误报 false -->
     <queries>

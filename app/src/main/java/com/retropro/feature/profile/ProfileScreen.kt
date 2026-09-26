@@ -47,6 +47,7 @@ fun ProfileScreen(
     onOpenQuote: () -> Unit = {},
     onOpenReminders: () -> Unit = {},
     onOpenBackup: () -> Unit = {},
+    onOpenVersion: () -> Unit = {},
 ) {
     val reminders by vm.reminders.collectAsStateWithLifecycle()
 
@@ -91,6 +92,11 @@ fun ProfileScreen(
             title = "备份与恢复",
             detail = "导出 JSON / 从备份恢复",
             onClick = onOpenBackup,
+        )
+        ListItem(
+            title = "版本与更新",
+            detail = "检查更新 · 更新日志 · GitHub / AtomGit",
+            onClick = onOpenVersion,
         )
 
         Spacer(Modifier.height(8.dp))

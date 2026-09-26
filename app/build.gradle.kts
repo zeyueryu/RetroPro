@@ -96,8 +96,8 @@ android {
         // 差异由 GlassCapability 在运行期分档消化，见 com.retropro.glass。
         minSdk = 31
         targetSdk = 36
-        versionCode = 47
-        versionName = "1.1.14-m1"
+        versionCode = 48
+        versionName = "1.1.15-m1"
         vectorDrawables { useSupportLibrary = true }
     }
 
