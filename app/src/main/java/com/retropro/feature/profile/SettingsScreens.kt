@@ -4,7 +4,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -56,8 +54,6 @@ import com.retropro.uikit.theme.AppShapes
 import com.retropro.uikit.theme.AppTypography
 import com.retropro.util.AppPrefs
 import com.retropro.util.DailyQuotes
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 
 /**
  * 「我的」的三个二级设置页（外观 / 提醒 / 备份）。
@@ -69,11 +65,11 @@ import top.yukonga.miuix.kmp.icon.extended.Back
 /**
  * 二级 / 三级页共享骨架：状态栏净空 + 标题 + 返回。
  *
- * `internal` 而非 `private`：[VersionScreen] 是独立文件，也要用这套骨架
- * （滚动 / 安全区 / 内边距只有这一份实现）。
+ * ⚠️ 「版本与更新」页**不用这个骨架**：它的版式是「顶栏 + hero 居中 + 卡片吸底」，
+ * 与这里的「大标题 + 内容 + 底部返回」滚动列不同构，故自己实现（见 VersionScreen.kt）。
  */
 @Composable
-internal fun SettingsScaffold(
+private fun SettingsScaffold(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
@@ -86,15 +82,6 @@ internal fun SettingsScaffold(
      * **不感知遮挡关系** → 玻璃面板只剩纯色可折射，渲染成一块偏黑的半透明板。
      */
     backgroundColor: Color? = AppColors.Background,
-    /**
-     * 轻量顶栏模式。默认 `false` = 现有版式（32sp 大标题 + 底部「返回」按钮），
-     * 既有五个页面**不传即零变化**。
-     *
-     * `true` 时改为「返回箭头 + 小号页名」顶栏，并**不渲染大标题、副标题与底部返回按钮** ——
-     * 版式为「版本与更新」页设计：那里要让大字版本号独占视觉焦点，
-     * 32sp 大标题会跟它抢注意力；返回由顶栏箭头与系统返回键承担，不需要两个返回入口。
-     */
-    compact: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Column(
@@ -110,41 +97,13 @@ internal fun SettingsScaffold(
             .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = navBarClearance()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (compact) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // 图标用项目既有写法（见 uikit/nav/LiquidNavBar.kt 的 Image + ColorFilter.tint）。
-                // 40dp 外框保证触摸目标够大，24dp 是图标本体的视觉尺寸。
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(AppShapes.Chip)
-                        .clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Image(
-                        imageVector = MiuixIcons.Regular.Back,
-                        contentDescription = "返回",
-                        modifier = Modifier.size(24.dp),
-                        colorFilter = ColorFilter.tint(AppColors.TextPrimary),
-                    )
-                }
-                AppText(title, AppTypography.CardTitle, AppColors.TextPrimary)
-            }
-        } else {
-            Column {
-                AppText(title, AppTypography.Display, AppColors.TextPrimary)
-                Spacer(Modifier.height(6.dp))
-                AppText(subtitle, AppTypography.Caption, AppColors.TextTertiary)
-            }
+        Column {
+            AppText(title, AppTypography.Display, AppColors.TextPrimary)
+            Spacer(Modifier.height(6.dp))
+            AppText(subtitle, AppTypography.Caption, AppColors.TextTertiary)
         }
         content()
-        if (!compact) {
-            SecondaryButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
-        }
+        SecondaryButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
     }
 }

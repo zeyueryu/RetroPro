@@ -1,6 +1,8 @@
 package com.retropro.feature.profile
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
@@ -33,6 +42,7 @@ import com.retropro.uikit.MiuixCard
 import com.retropro.uikit.MiuixPopupScope
 import com.retropro.uikit.PrimaryButton
 import com.retropro.uikit.SecondaryButton
+import com.retropro.uikit.navBarClearance
 import com.retropro.uikit.theme.AppColors
 import com.retropro.uikit.theme.AppShapes
 import com.retropro.uikit.theme.AppTypography
@@ -40,6 +50,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 
 // ---------------------------------------------------------------- 链接常量
@@ -245,40 +257,65 @@ fun VersionScreen(onBack: () -> Unit) {
     }
 
     MiuixPopupScope(modifier = Modifier.fillMaxSize()) {
-        SettingsScaffold(
-            title = "版本与更新",
-            subtitle = "", // compact 模式不渲染副标题，见 SettingsScaffold 的参数说明
-            onBack = onBack,
-            compact = true,
+        // 版式对照 ColorOS「软件更新」：**顶栏 + hero 居中 + 卡片吸底**。
+        // 因此不用 SettingsScaffold（它是「大标题 + 内容 + 底部返回」的滚动列，不同构）。
+        Column(
+            Modifier
+                .fillMaxSize()
+                // 「我的」线严格 MIUIX：铺实底，阻断背后光晕/条纹
+                .background(AppColors.Background)
+                .statusBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = navBarClearance()),
         ) {
-            VersionHero()
+            VersionTopBar(title = "版本与更新", onBack = onBack)
 
-            VersionCard(
-                state = state,
-                onCheck = { runCheck() },
-                onOpenLog = {
-                    dialogMode = DialogMode.RELEASE_NOTES
-                    dialogVisible = true
-                },
-            )
+            // hero 吃掉剩余空间并居中 —— 对应截图里"大字悬在中上部"的观感
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                VersionHero()
+            }
 
-            AsrModelCard(
-                modelState = modelState,
-                onInstall = { installModel() },
-                onCancel = { cancelInstall() },
-                onRemove = { removeModel() },
-            )
-
-            if (openFailed) {
-                AppText(
-                    text = "没有可用浏览器，请手动访问 github.com/zeyueryu/RetroPro/releases",
-                    style = AppTypography.Caption,
-                    color = AppColors.OpponentSoft,
+            // 卡片区吸底（截图里卡片贴屏幕底部）。
+            // 自身可滚 + 限高：卡片变多或系统字号放大时向上滚动，不会把 hero 挤没、也不会溢出屏幕。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                AsrModelCard(
+                    modelState = modelState,
+                    onInstall = { installModel() },
+                    onCancel = { cancelInstall() },
+                    onRemove = { removeModel() },
                 )
+
+                // 「检查更新」卡放最下面 —— 与截图里的卡片位置一致
+                VersionCard(
+                    state = state,
+                    onCheck = { runCheck() },
+                    onOpenLog = {
+                        dialogMode = DialogMode.RELEASE_NOTES
+                        dialogVisible = true
+                    },
+                )
+
+                if (openFailed) {
+                    AppText(
+                        text = "没有可用浏览器，请手动访问 github.com/zeyueryu/RetroPro/releases",
+                        style = AppTypography.Caption,
+                        color = AppColors.OpponentSoft,
+                    )
+                }
             }
         }
 
-        // 弹卡片与 SettingsScaffold 同层，都在 MiuixPopupScope 的子树内
+        // 弹卡片与页面同层，都在 MiuixPopupScope 的子树内
         VersionDialogCard(
             mode = dialogMode,
             visible = dialogVisible,
@@ -301,7 +338,42 @@ fun VersionScreen(onBack: () -> Unit) {
 // ---------------------------------------------------------------- 各区块
 
 /**
- * hero 区：居中三行 —— 大字版本号 / RetroPro / 设备型号。
+ * 轻量顶栏：返回箭头 + 小号页名（仿截图里的「软件更新」）。
+ *
+ * 图标用项目既有写法（见 `uikit/nav/LiquidNavBar.kt` 的 `Image + ColorFilter.tint`）；
+ * 40dp 外框保证触摸目标够大，24dp 是图标本体视觉尺寸。
+ */
+@Composable
+private fun VersionTopBar(title: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(AppShapes.Chip)
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                imageVector = MiuixIcons.Regular.Back,
+                contentDescription = "返回",
+                modifier = Modifier.size(24.dp),
+                colorFilter = ColorFilter.tint(AppColors.TextPrimary),
+            )
+        }
+        AppText(title, AppTypography.CardTitle, AppColors.TextPrimary)
+    }
+}
+
+/**
+ * hero 区：居中三行 —— **大字产品名 / 版本号 / 设备型号**。
+ *
+ * 顺序对照截图（大字在上、产品名在中、设备名在下），但把大字换成了 **RetroPro**、
+ * 版本号降为中字 —— 因为本项目的版本号是 `1.2.0-m1` 这种较长的字符串，
+ * 放到 51sp 会显拥挤，而产品名做视觉主体更像"应用自己的更新页"。
  *
  * 字号用**相对倍数**放大（[HERO_SCALE]），不写死 sp —— 见项目的字号规则与
  * `RecordScreen` 里 `AppTypography.Title.fontSize * 1.35f` 的先例。
@@ -313,7 +385,7 @@ private fun VersionHero() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AppText(
-            text = BuildConfig.VERSION_NAME,
+            text = "RetroPro",
             style = AppTypography.Display.copy(
                 fontSize = AppTypography.Display.fontSize * HERO_SCALE,
             ),
@@ -321,8 +393,8 @@ private fun VersionHero() {
             maxLines = 1,
         )
         Spacer(Modifier.height(6.dp))
-        AppText("RetroPro", AppTypography.Title, AppColors.TextSecondary)
-        Spacer(Modifier.height(2.dp))
+        AppText(BuildConfig.VERSION_NAME, AppTypography.Lead, AppColors.TextSecondary)
+        Spacer(Modifier.height(4.dp))
         AppText(deviceLabel(), AppTypography.Caption, AppColors.TextTertiary)
     }
 }
