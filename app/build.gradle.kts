@@ -191,6 +191,13 @@ ksp {
 val sdkDir: String? = localProps.getProperty("sdk.dir") ?: System.getenv("ANDROID_HOME")
 val versionTag = android.defaultConfig.versionName ?: "dev"
 
+// apksigner 跨平台：Windows 是 apksigner.bat（必须经 cmd /c 调用），
+// Linux/macOS 是无扩展名的 shell 脚本（直接执行）。CI（ubuntu runner）走后者。
+val isWindows: Boolean = System.getProperty("os.name").lowercase().contains("win")
+val apksignerExe = "$sdkDir/build-tools/37.0.0/" + if (isWindows) "apksigner.bat" else "apksigner"
+val apksignerCmd: List<String> =
+    if (isWindows) listOf("cmd", "/c", apksignerExe) else listOf(apksignerExe)
+
 val signReleaseV123 = if (useSigning && sdkDir != null) {
     tasks.register("signReleaseV123", Exec::class) {
         group = "build"
@@ -207,7 +214,8 @@ val signReleaseV123 = if (useSigning && sdkDir != null) {
         val keyPass = signingSecrets["REPRO_KEY_PASSWORD"]!!
         val alias = signingSecrets["REPRO_KEY_ALIAS"]!!
 
-        commandLine("cmd", "/c", "$sdkDir/build-tools/37.0.0/apksigner.bat", "sign",
+        commandLine(apksignerCmd + listOf(
+            "sign",
             "--ks", keystorePath,
             "--ks-key-alias", alias,
             "--ks-pass", "pass:$storePass",
@@ -219,7 +227,7 @@ val signReleaseV123 = if (useSigning && sdkDir != null) {
             "--v4-signing-enabled", "false",
             "--out", outApk.get().asFile.absolutePath,
             inApk.get().asFile.absolutePath,
-        )
+        ))
     }
 } else {
     null

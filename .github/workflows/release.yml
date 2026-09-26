@@ -1,0 +1,92 @@
+name: Build & Release APK
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 触发方式
+#   1. 推送 tag（推荐）：push 一个 v* 标签 → 自动构建 + 把 APK 挂到同名 Release
+#   2. 手动运行：Actions 页 → Run workflow → 只构建并把 APK 存为构建产物（不发 Release）
+#
+# 需要配置的仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   REPRO_KEYSTORE_BASE64  密钥库文件的 base64（生成见 README/发布说明）
+#   REPRO_STORE_PASSWORD   密钥库密码
+#   REPRO_KEY_ALIAS        密钥别名
+#   REPRO_KEY_PASSWORD     密钥密码
+#
+#   ⚠️ 四个都配好才会出**已签名**包；缺任意一个则构建未签名包（流水线不会失败）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 挂 Release 资产需要 write 权限
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # ubuntu-latest 预装 Android SDK Platform android-37.0 与 build-tools 37.0.0，
+      # 正好满足本工程 compileSdk 37 + compileSdkMinor 0，无需额外安装。
+      - name: 打印构建环境
+        run: |
+          echo "Gradle: $(./gradlew --version | grep -E '^Gradle' || true)"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" | tail -5
+
+      - name: 拉取不入库的大文件（sherpa-onnx AAR + 语音模型，约 1.2 GB）
+        run: bash tools/fetch_deps.sh
+
+      - name: 载入签名密钥库
+        run: |
+          if [ -n "${{ secrets.REPRO_KEYSTORE_BASE64 }}" ]; then
+            printf '%s' "${{ secrets.REPRO_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/retropro-release.p12"
+            echo "REPRO_STORE_FILE=$RUNNER_TEMP/retropro-release.p12" >> "$GITHUB_ENV"
+            echo "::notice::已载入签名密钥库，将产出已签名包"
+          else
+            echo "::warning::未配置 REPRO_KEYSTORE_BASE64，本次构建为未签名包"
+          fi
+
+      - name: 构建 release
+        env:
+          REPRO_STORE_PASSWORD: ${{ secrets.REPRO_STORE_PASSWORD }}
+          REPRO_KEY_ALIAS: ${{ secrets.REPRO_KEY_ALIAS }}
+          REPRO_KEY_PASSWORD: ${{ secrets.REPRO_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: 打印产物并校验签名
+        run: |
+          ls -lh app/build/outputs/apk/release/
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          if [ -f "$RUNNER_TEMP/retropro-release.p12" ]; then
+            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$APK"
+          fi
+
+      - name: 存为构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: retropro-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: 发布到 Release（仅 tag 触发时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
+          draft: false

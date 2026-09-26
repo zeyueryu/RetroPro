@@ -144,6 +144,30 @@ REPRO_KEY_PASSWORD=****
 配置齐全后 `gradle :app:assembleRelease` 会额外产出 v1+v2+v3 三签名齐全的
 `RetroPro-<版本>-signed.apk`。
 
+### 自动构建与发版（GitHub Actions）
+
+推送 `v*` 标签即触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：
+拉取依赖 → 构建 release → 校验签名 → 把 APK 挂到同名 Release。
+
+若希望 CI 产出**已签名**包，先在 `Settings → Secrets and variables → Actions` 添加四个 Secret：
+
+| Secret | 内容 | 生成方式 |
+|---|---|---|
+| `REPRO_KEYSTORE_BASE64` | 密钥库文件的 base64 | Linux：`base64 -w0 your.jks`；macOS：`base64 -i your.jks` |
+| `REPRO_STORE_PASSWORD` | 密钥库密码 | — |
+| `REPRO_KEY_ALIAS` | 密钥别名 | — |
+| `REPRO_KEY_PASSWORD` | 密钥密码 | — |
+
+四个缺任意一个时，流水线仍会正常构建并上传**未签名**包（只是不能用于覆盖升级）。
+单次运行约 10 分钟，其中大半花在下载 1.2 GB 依赖上。
+
+发版命令：
+
+```bash
+git tag v1.1.14-m1
+git push origin v1.1.14-m1
+```
+
 ---
 
 ## 项目结构
