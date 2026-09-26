@@ -15,15 +15,19 @@ import kotlin.concurrent.thread
 /**
  * SenseVoice-Small 本地语音识别（sherpa-onnx int8 量化，离线，不联网）。
  *
- * ## 模型来源（魔搭社区镜像）
- * `gomodels/sherpa` 仓库下的 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`
- * （原 sherpa-onnx 官方 release 的国内镜像），打包进 assets：
- *  - `asr/model.int8.onnx`（228MB，int8 量化，中/英/日/韩/粤语）
+ * ## 模型来源：**插件目录**，不再打进 APK
+ *
+ * 模型（约 229MB）由 [AsrModelPlugin] 在用户点「下载语音模型」时下载到
+ * `filesDir/asr/`：
+ *  - `asr/model.int8.onnx`（int8 量化，中/英/日/韩/粤语）
  *  - `asr/tokens.txt`
  *
+ * 这样 APK 里不再背 230MB，改 UI 只需重装小包。**未安装模型时** [ensureReady] 返回 false
+ * 并在 [initError] 里给出可执行的指引（页面上的「版本与更新」有下载入口）。
+ * 语音输入此时仍会自动退到系统识别器（见 VoiceInputController），功能不中断。
+ *
  * ## 生命周期
- * 模型常驻内存约 300MB，进程内只建一次 [OfflineRecognizer]；
- * 首次调用 [ensureReady] 会把 assets 拷到 filesDir（sherpa-onnx 必须从文件路径加载）。
+ * 模型常驻内存约 300MB，进程内只建一次 [OfflineRecognizer]。
  *
  * ## 录音
  * SenseVoice 是**离线（非流式）**模型：整段录完再解码，没有中间结果。
@@ -31,7 +35,6 @@ import kotlin.concurrent.thread
  */
 object LocalAsr {
 
-    private const val ASR_DIR = "asr"
     private const val SAMPLE_RATE = 16000
     private const val TAG_REGEX = "<\\|[^>]*\\|>"  // SenseVoice 输出带 <|zh|><|NEUTRAL|> 等标记
 
@@ -55,16 +58,26 @@ object LocalAsr {
 
     // ------------------------------------------------------------ 初始化
 
-    /** 拷 assets → filesDir → 建 OfflineRecognizer。幂等，失败返回 false 并记 [initError] */
+    /**
+     * 从**插件目录**加载模型并建 [OfflineRecognizer]。幂等；
+     * 失败返回 false 并把原因写进 [initError]。
+     *
+     * 模型未安装时**不做任何自动下载** —— 230MB 必须由用户知情触发，
+     * 这里只报告状态与指引。
+     */
     fun ensureReady(context: Context): Boolean {
         if (recognizer != null) return true
         return synchronized(this) {
             if (recognizer != null) return true
             try {
-                val dir = File(context.filesDir, ASR_DIR)
-                if (!dir.exists()) dir.mkdirs()
-                copyAssetIfNeeded(context, "$ASR_DIR/model.int8.onnx", File(dir, "model.int8.onnx"))
-                copyAssetIfNeeded(context, "$ASR_DIR/tokens.txt", File(dir, "tokens.txt"))
+                val dir = AsrModelPlugin.dir(context)
+                val modelFile = File(dir, "model.int8.onnx")
+                val tokensFile = File(dir, "tokens.txt")
+
+                if (!AsrModelPlugin.isInstalled(context)) {
+                    initError = "语音模型未安装 —— 到「我的 → 版本与更新」下载后即可离线识别"
+                    return@synchronized false
+                }
 
                 // API 已按项目规矩用 javap 对 app/libs/sherpa-onnx-1.13.8.aar 核实：
                 // OfflineRecognizerConfig(featConfig, modelConfig)；
@@ -75,17 +88,18 @@ object LocalAsr {
                         featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
                         modelConfig = OfflineModelConfig(
                             senseVoice = OfflineSenseVoiceModelConfig(
-                                model = File(dir, "model.int8.onnx").absolutePath,
+                                model = modelFile.absolutePath,
                                 language = "zh",
                                 useInverseTextNormalization = true,
                             ),
-                            tokens = File(dir, "tokens.txt").absolutePath,
+                            tokens = tokensFile.absolutePath,
                             numThreads = 2,
                             debug = false,
                             provider = "cpu",
                         ),
                     ),
                 )
+                initError = null
                 true
             } catch (t: Throwable) {
                 initError = t.message ?: t.javaClass.simpleName
@@ -94,10 +108,11 @@ object LocalAsr {
         }
     }
 
-    private fun copyAssetIfNeeded(context: Context, assetPath: String, dst: File) {
-        if (dst.exists() && dst.length() > 0) return
-        context.assets.open(assetPath).use { input ->
-            dst.outputStream().use { output -> input.copyTo(output, bufferSize = 1 shl 20) }
+    /** 模型文件被删除/更换后调用，强制下次 [ensureReady] 重新加载 */
+    fun releaseRecognizer() {
+        synchronized(this) {
+            recognizer = null
+            initError = null
         }
     }
 

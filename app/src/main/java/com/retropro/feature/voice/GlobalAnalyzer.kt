@@ -100,13 +100,11 @@ object GlobalAnalyzer {
         return synchronized(this) {
             if (vad != null) return true
             try {
-                val dir = File(context.filesDir, "asr")
-                if (!dir.exists()) dir.mkdirs()
-                val dst = File(dir, "silero_vad.onnx")
-                if (!dst.exists() || dst.length() == 0L) {
-                    context.assets.open("asr/silero_vad.onnx").use { input ->
-                        dst.outputStream().use { output -> input.copyTo(output) }
-                    }
+                // VAD 模型同样来自插件目录（由 AsrModelPlugin 下载），不再从 assets 拷
+                val dst = AsrModelPlugin.file(context, "silero_vad.onnx")
+                if (!dst.isFile || dst.length() == 0L) {
+                    android.util.Log.e("GlobalAnalyzer", "VAD 模型未安装：${dst.absolutePath}")
+                    return@synchronized false
                 }
                 vad = Vad(
                     config = VadModelConfig(
@@ -128,6 +126,11 @@ object GlobalAnalyzer {
                 false
             }
         }
+    }
+
+    /** 模型文件被删除/更换后调用，强制下次 [ensureVadReady] 重新加载 */
+    fun releaseVad() {
+        synchronized(this) { vad = null }
     }
 
     // ------------------------------------------------------------ 主入口

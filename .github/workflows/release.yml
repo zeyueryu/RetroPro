@@ -48,7 +48,7 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" | tail -5
 
-      - name: 拉取不入库的大文件（sherpa-onnx AAR + 语音模型，约 1.2 GB）
+      - name: 拉取构建依赖（sherpa-onnx AAR，约 50 MB）
         run: bash tools/fetch_deps.sh
 
       - name: 载入签名密钥库

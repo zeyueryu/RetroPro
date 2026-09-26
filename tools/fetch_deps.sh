@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# 拉取构建所需的第三方大文件（不入库，见 .gitignore）
+# 拉取构建所需的第三方大文件
 #
-#   1. sherpa-onnx 预编译 AAR        → app/libs/          (~50 MB)
-#   2. SenseVoice-Small int8 模型    → models/ 与 app/src/main/assets/asr/
-#   3. Silero VAD 模型               → 同上                          (~0.6 MB)
+#   sherpa-onnx 预编译 AAR → app/libs/   （约 50 MB，构建必需）
+#
+# ★ 语音模型（约 229 MB）**不再需要在这里拉取**：它已从 APK 中剥离，
+#   改为应用运行时按需下载（我的 → 版本与更新 → 语音模型）。
+#   构建不再依赖任何模型文件。
 #
 # 用法：
-#   bash tools/fetch_deps.sh              # 官方源
-#   MIRROR=ghfast bash tools/fetch_deps.sh  # 走 ghfast.top 镜像（中国大陆推荐）
+#   bash tools/fetch_deps.sh                 # 官方源
+#   MIRROR=ghfast bash tools/fetch_deps.sh   # 走 ghfast.top 镜像（中国大陆推荐）
 #
-# 校验：脚本末尾会用固定字节数核对下载结果，与 upstream 不一致会告警。
+# 另：若想留一份模型做本地参考（非必需），可显式加 --models。
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -23,6 +25,14 @@ AAR_URL="${GH}/v${SHERPA_VERSION}/sherpa-onnx-${SHERPA_VERSION}.aar"
 MODEL_URL="${GH}/asr-models/${SENSE_VOICE_ARCHIVE}"
 VAD_URL="${GH}/asr-models/${SILERO_FILE}"
 
+WITH_MODELS=0
+for arg in "$@"; do
+    case "$arg" in
+        --models) WITH_MODELS=1 ;;
+        *) echo "未知参数：$arg（可用：--models）" >&2; exit 2 ;;
+    esac
+done
+
 # 中国大陆直连 github.com 常被中断；ghfast.top 是可用的 release 资产代理
 if [ "${MIRROR:-}" = "ghfast" ]; then
     AAR_URL="https://ghfast.top/${AAR_URL}"
@@ -34,11 +44,10 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LIBS_DIR="$ROOT/app/libs"
 MODELS_DIR="$ROOT/models"
-ASSETS_DIR="$ROOT/app/src/main/assets/asr"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-mkdir -p "$LIBS_DIR" "$MODELS_DIR" "$ASSETS_DIR"
+mkdir -p "$LIBS_DIR"
 
 fetch() { # fetch <url> <输出文件>
     local url="$1" out="$2"
@@ -56,33 +65,29 @@ fetch() { # fetch <url> <输出文件>
     mv "$out.part" "$out"
 }
 
-# ---- 1. sherpa-onnx AAR（约 50 MB，超出 GitHub 单文件 100 MB 限制之外但过大不适合入库）----
+# ---- 构建必需：sherpa-onnx AAR ----
 fetch "$AAR_URL" "$LIBS_DIR/sherpa-onnx-${SHERPA_VERSION}.aar"
 
-# ---- 2 & 3. 模型 ----
-fetch "$VAD_URL" "$MODELS_DIR/$SILERO_FILE"
-fetch "$MODEL_URL" "$TMP_DIR/$SENSE_VOICE_ARCHIVE"
+if [ "$WITH_MODELS" = "1" ]; then
+    # ---- 可选：模型本地留档（构建不读它，仅供人工核对）----
+    mkdir -p "$MODELS_DIR"
+    fetch "$VAD_URL" "$MODELS_DIR/$SILERO_FILE"
+    fetch "$MODEL_URL" "$TMP_DIR/$SENSE_VOICE_ARCHIVE"
 
-echo "解包 SenseVoice 模型（约 1 GB 压缩包，需要几分钟）…"
-tar -xjf "$TMP_DIR/$SENSE_VOICE_ARCHIVE" -C "$TMP_DIR"
-EXTRACTED="$(find "$TMP_DIR" -maxdepth 1 -type d -name 'sherpa-onnx-sense-voice*' | head -1)"
-[ -n "$EXTRACTED" ] || { echo "解包结果中找不到模型目录" >&2; exit 1; }
-
-# 只保留运行时需要的三个文件
-for f in "model.int8.onnx" "tokens.txt"; do
-    src="$EXTRACTED/$f"
-    if [ ! -f "$src" ]; then
-        echo "压缩包内缺少 $f，请检查上游是否改版" >&2
-        exit 1
-    fi
-    cp -f "$src" "$MODELS_DIR/$f"
-    cp -f "$src" "$ASSETS_DIR/$f"
-done
-cp -f "$MODELS_DIR/$SILERO_FILE" "$ASSETS_DIR/$SILERO_FILE"
+    echo "解包 SenseVoice 模型（约 1 GB 压缩包，需要几分钟）…"
+    tar -xjf "$TMP_DIR/$SENSE_VOICE_ARCHIVE" -C "$TMP_DIR"
+    EXTRACTED="$(find "$TMP_DIR" -maxdepth 1 -type d -name 'sherpa-onnx-sense-voice*' | head -1)"
+    [ -n "$EXTRACTED" ] || { echo "解包结果中找不到模型目录" >&2; exit 1; }
+    for f in "model.int8.onnx" "tokens.txt"; do
+        [ -f "$EXTRACTED/$f" ] || { echo "压缩包内缺少 $f，请检查上游是否改版" >&2; exit 1; }
+        cp -f "$EXTRACTED/$f" "$MODELS_DIR/$f"
+    done
+    echo "模型已留档在 $MODELS_DIR（不参与构建）"
+fi
 
 echo
 echo "完成。产物："
 ls -lh "$LIBS_DIR/sherpa-onnx-${SHERPA_VERSION}.aar" 2>/dev/null || true
-ls -lh "$ASSETS_DIR"
 echo
 echo "现在可以：./gradlew :app:assembleDebug   （或 gradle :app:assembleDebug）"
+echo "语音模型由 App 运行时下载：我的 → 版本与更新 → 语音模型"

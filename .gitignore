@@ -20,11 +20,11 @@ keystore/
 signing.properties
 release-signing/
 
-# ---------------------------------------------------------------- 体积过大的第三方二进制与模型
-# sherpa-onnx 预编译 AAR（48MB）+ SenseVoice-Small int8 模型（229MB）不入库，
-# 用 tools/fetch_deps.sh 拉取；参见 README「准备依赖」
+# ---------------------------------------------------------------- 体积过大的第三方二进制
+# sherpa-onnx 预编译 AAR（48MB）不入库，用 tools/fetch_deps.sh 拉取
 app/libs/*.aar
-app/src/main/assets/asr/
+# 语音模型（约 229MB）**不再打进 APK**，改为应用内按需下载（我的 → 版本与更新），
+# 因此构建不再需要它们；这里的 models/ 只是本地留档，不参与构建
 models/
 
 # ---------------------------------------------------------------- 交付包

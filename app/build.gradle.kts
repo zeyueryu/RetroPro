@@ -96,9 +96,19 @@ android {
         // 差异由 GlassCapability 在运行期分档消化，见 com.retropro.glass。
         minSdk = 31
         targetSdk = 36
-        versionCode = 48
-        versionName = "1.1.15-m1"
+        versionCode = 49
+        versionName = "1.2.0-m1"
         vectorDrawables { useSupportLibrary = true }
+
+        // 只打包 arm64 的 native 库。
+        //
+        // sherpa-onnx 的 4 套 ABI 合计 122 MiB，而现役手机全是 arm64 ——
+        // 裁掉其余三套能让 APK 从 ~148 MiB 降到 ~57 MiB，"更新只装小包"才真正成立。
+        // 代价：**x86 模拟器与 32 位（armeabi-v7a）设备装不了**。
+        // 需要时把对应 ABI 加回来即可（本地临时验证可在命令行覆盖，见 README）。
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
