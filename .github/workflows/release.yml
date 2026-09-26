@@ -63,37 +63,69 @@ jobs:
           REPRO_KEY_ALIAS: ${{ secrets.REPRO_KEY_ALIAS }}
           REPRO_KEY_PASSWORD: ${{ secrets.REPRO_KEY_PASSWORD }}
         run: |
-          check_secrets() {
-            {
-              echo "### 签名 Secret 检查"
-              echo ""
-              echo "| Secret | 状态 |"
-              echo "|---|---|"
-            } >> "$GITHUB_STEP_SUMMARY"
-            local miss=0
-            for s in "$@"; do
-              if [ -n "${!s}" ]; then
-                echo "| \`$s\` | 已配置 |" >> "$GITHUB_STEP_SUMMARY"
-              else
-                echo "| \`$s\` | **未配置** |" >> "$GITHUB_STEP_SUMMARY"
-                miss=1
-              fi
-            done
-            return $miss
-          }
+          # 四项全查（原来只查了三个，漏掉 REPRO_STORE_FILE —— 而它恰恰是
+          # 唯一由本步骤**自己**造出来的，列进表里的才能暴露它到底有没有落地）。
+          {
+            echo "### 签名 Secret 检查"
+            echo ""
+            echo "| Secret | 状态 |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          MISS=0
+          for s in REPRO_KEYSTORE_BASE64 REPRO_STORE_PASSWORD REPRO_KEY_ALIAS REPRO_KEY_PASSWORD; do
+            if [ -n "${!s}" ]; then
+              echo "| \`$s\` | 已配置 |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$s\` | **未配置** |" >> "$GITHUB_STEP_SUMMARY"
+              MISS=$((MISS+1))
+            fi
+          done
 
           if [ -z "${REPRO_KEYSTORE_BASE64:-}" ]; then
             echo "::warning::REPRO_KEYSTORE_BASE64 未配置 —— 本次构建将产出**未签名**包，tag 构建会被闸门拦下"
           else
             if printf '%s' "$REPRO_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/retropro-release.p12"; then
-              echo "REPRO_STORE_FILE=$RUNNER_TEMP/retropro-release.p12" >> "$GITHUB_ENV"
-              echo "- 密钥库已解码，将产出已签名包" >> "$GITHUB_STEP_SUMMARY"
+              echo "- 密钥库已解码到 \`$RUNNER_TEMP/retropro-release.p12\`（$(wc -c < "$RUNNER_TEMP/retropro-release.p12") 字节）" >> "$GITHUB_STEP_SUMMARY"
             else
               echo "::error::REPRO_KEYSTORE_BASE64 解码失败 —— 内容可能损坏或含多余换行，请重新生成完整 base64"
               exit 1
             fi
           fi
-          check_secrets REPRO_STORE_PASSWORD REPRO_KEY_ALIAS REPRO_KEY_PASSWORD || true
+
+          # ★★ 关键一步：把四项**落成本地 local.properties**，而不是只写 GITHUB_ENV。
+          #
+          #   背景（第六次 CI 的实证）：产物目录里只有 `app-release-unsigned.apk`，
+          #   说明 gradle 配置期算出的 `useSigning == false`，整条签名链没建起来。
+          #   而本地同一个 tag 能正常出 `RetroPro-1.2.0-m1-signed.apk` —— 差别就在
+          #   本地有 local.properties、CI 只有环境变量。
+          #
+          #   `app/build.gradle.kts` 的取值顺序是 **local.properties → 环境变量**，
+          #   两条路其实都能读到；但写成 local.properties 有两点实质好处：
+          #   ① 让 CI 与本机走**完全同一条**配置期代码路径，少一层时序变量；
+          #   ② 顺手把 sdk.dir 也写进去，`signReleaseV123` 的 `sdkDir != null` 前提一并满足
+          #      （它原本只靠 ANDROID_HOME，漏了就整个任务不注册）。
+          #
+          #   ⚠️ local.properties 已被 .gitignore 排除，落盘不会污染仓库，runner 也是一次性的，无需清理。
+          {
+            echo "sdk.dir=${ANDROID_HOME}"
+            echo "REPRO_STORE_FILE=${RUNNER_TEMP}/retropro-release.p12"
+            echo "REPRO_STORE_PASSWORD=${REPRO_STORE_PASSWORD}"
+            echo "REPRO_KEY_ALIAS=${REPRO_KEY_ALIAS}"
+            echo "REPRO_KEY_PASSWORD=${REPRO_KEY_PASSWORD}"
+          } > local.properties
+          echo "- 已写入 local.properties（供 gradle 配置期读取）" >> "$GITHUB_STEP_SUMMARY"
+
+          # tag 构建（要发版）时四项必须齐，缺一个就直接红，别等到产物闸门才说不清
+          if [ "${GITHUB_REF}" = "${GITHUB_REF#refs/tags/}" ]; then
+            echo "非 tag 构建，缺 Secret 只告警继续"
+          else
+            if [ "$MISS" -ne 0 ]; then
+              echo "::error::tag 构建需要四项签名 Secret 全配齐，当前缺 $MISS 项（见上方表格）—— 产物签名闸门会拦下本次发版"
+            fi
+            if [ ! -f "$RUNNER_TEMP/retropro-release.p12" ]; then
+              echo "::error::密钥库文件不存在：$RUNNER_TEMP/retropro-release.p12"
+            fi
+          fi
 
       - name: 构建 release
         env:
@@ -227,6 +259,14 @@ jobs:
       #   ③ 上传     PUT  <上一步返回的 url>，带上返回的 headers
       #   ④ 回读     GET  .../releases/tags/{tag}                      → assets[].browser_download_url
       #
+      #   ⚠️⚠️ 同名附件只能挂一次 —— 实测（2026-09-26）：
+      #     第二次 PUT 同一个 file_name 时，PUT 仍返回 203（看着像成功），
+      #     但附件表不变、CDN 继续指向**旧对象**，用户下到的还是旧包。
+      #     而 v5 API 没有删除/替换附件的端点（DELETE 试了 8 种路径：404/405）。
+      #     ⇒ 所以要替换发布产物，必须换一个新的 tag（Release 跟着 tag 走）。
+      #     本步骤因此加了一道回读校验：上传后比对线上附件的 SHA-256，不一致就失败，
+      #     避免又一次「流水线全绿、用户拿到旧包」。
+      #
       # ⚠️ 这些接口**必须**带访问令牌（SSH 密钥只能推代码，不能发版）：
       #   在 https://gitcode.com/setting/token-classic 生成，存为仓库 Secret `ATOMGIT_TOKEN`。
       #   未配置时本步骤自动跳过（不会让流水线变红）。
@@ -277,12 +317,55 @@ jobs:
           # ④ 回读附件直链（供 App 内「AtomGit 下载」按钮使用）
           curl -sS "https://api.gitcode.com/api/v5/repos/${ATOMGIT_REPO}/releases/tags/${TAG}" \
             -H "Authorization: Bearer ${ATOMGIT_TOKEN}" > /tmp/release.json
+
+          # ★ ⑤ 端到端回验：把线上那个直链下回来，比对 SHA-256。
+          #   背景：AtomGit 同名附件第二次上传会被**静默忽略**（PUT 返 203 但附件表不变），
+          #   光看上传返回码是发现不了的。只有比对哈希才能证明用户真下到新包。
           python3 - <<'PY'
-          import json
+          import hashlib, json, os, sys, urllib.request
+
           d = json.load(open('/tmp/release.json'))
+          apk = os.environ['APK']
+          base = os.path.basename(apk)
           print('Release:', d.get('name'), '| tag:', d.get('tag_name'))
           for a in d.get('assets') or []:
-              print('  附件直链:', a.get('name'), '→', a.get('browser_download_url'))
+              print('  附件:', a.get('name'), '→', a.get('browser_download_url'))
+
+          def sha(path):
+              h = hashlib.sha256()
+              with open(path, 'rb') as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          local = sha(apk)
+          live = None
+          for a in d.get('assets') or []:
+              if a.get('name') == base and a.get('browser_download_url'):
+                  live = a['browser_download_url']
+                  break
+
+          print(f'\n本地 SHA-256: {local}')
+          if live is None:
+              print(
+                  '\n::error::Release 里没有名为 %s 的附件 —— 上传被静默忽略了。\n'
+                  '最可能是这个 tag 下已有同名附件（AtomGit 同名附件只挂一次，且 API 无法替换），'
+                  '必须换一个新的 tag 重新发版。' % base
+              )
+              sys.exit(1)
+
+          tmp = '/tmp/live_verify.bin'
+          urllib.request.urlretrieve(live, tmp)
+          got = sha(tmp)
+          print(f'线上 SHA-256: {got}\n线上直链: {live}')
+          if got != local:
+              print(
+                  '\n::error::线上附件的 SHA-256 与本地不一致 —— 用户会下到旧包。\n'
+                  'AtomGit 的 CDN 仍指向本次上传之前的对象（同名附件不会被替换）。\n'
+                  '解决：删掉这个 tag 与它的 Release，用新版本号重新发版。'
+              )
+              sys.exit(1)
+          print('✓ 线上附件与本地构建一致（%s）' % local[:16])
           PY
 
       # ★ 失败时把现场写回仓库。
