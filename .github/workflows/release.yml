@@ -47,6 +47,7 @@ jobs:
           echo "Gradle: $(./gradlew --version | grep -E '^Gradle' || true)"
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" | tail -5
+          echo "build-tools 目录："; ls "$ANDROID_HOME/build-tools" 2>&1 | sed 's/^/  /'
 
       - name: 拉取构建依赖（sherpa-onnx AAR，约 50 MB）
         run: bash tools/fetch_deps.sh
@@ -103,11 +104,36 @@ jobs:
 
       - name: 打印产物并校验签名
         run: |
-          ls -lh app/build/outputs/apk/release/
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          ls -lh app/build/outputs/apk/release/ | tee -a "$GITHUB_STEP_SUMMARY"
+          # ★ 必须显式挑 apksigner 三签的产物，不能靠 ls 顺序：
+          #   目录里同时有 app-release.apk（AGP 打包器在 minSdk 高时**只写 v3**）和
+          #   RetroPro-<ver>-signed.apk（apksigner 显式签的 v1+v2+v3）。
+          #   locale 排序下会被 app-release.apk 抢到第一位，
+          #   而 verify --min-sdk-version 23 会强求 v1+v2 → 必然失败。
+          APK=$(ls app/build/outputs/apk/release/RetroPro-*-signed.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            APK=$(ls app/build/outputs/apk/release/*-signed.apk 2>/dev/null | head -1)
+          fi
+          echo "待校验产物：$APK"
+          {
+            echo "### 产物校验"
+            echo ""
+            echo "- 待校验：`${APK:-（未找到任何 APK）}`"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "APK=$APK" >> "$GITHUB_ENV"
           if [ -f "$RUNNER_TEMP/retropro-release.p12" ]; then
-            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$APK"
+            if [ ! -z "$APK" ]; then
+              set +e
+              "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify -v --min-sdk-version 23 "$APK"
+              RC=$?
+              set -e
+              echo "apksigner verify 退出码：$RC" >> "$GITHUB_STEP_SUMMARY"
+              if [ $RC -ne 0 ]; then
+                echo "::error::apksigner verify 对 $APK 失败（退出码 $RC）—— 见上方输出确认缺哪档签名块"
+                exit 1
+              fi
+              echo "✓ v1+v2+v3 三签校验通过" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
       - name: 存为构建产物
@@ -124,7 +150,13 @@ jobs:
       - name: 校验产物已签名（未签名则拒绝发版）
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          SIGNED=$(ls app/build/outputs/apk/release/*-signed.apk 2>/dev/null | head -1 || true)
+          # ★ 只认 signReleaseV123 显式三签的产物 RetroPro-<ver>-signed.apk。
+          #   目录里还有 AGP 单签（minSdk 高时 build 器只写 v3）的 app-release.apk，
+          #   把 glob 放宽成 *-signed.apk 会把那个包误判成"签名通过"（假阳性）。
+          SIGNED=$(ls app/build/outputs/apk/release/RetroPro-*-signed.apk 2>/dev/null | head -1 || true)
+          if [ -z "$SIGNED" ]; then
+            SIGNED=$(ls app/build/outputs/apk/release/*-signed.apk 2>/dev/null | head -1 || true)
+          fi
           {
             echo "### 产物清单"
             echo ""
@@ -142,10 +174,14 @@ jobs:
               echo ""
               echo "未找到 \`*-signed.apk\` —— 构建产物是未签名包，拒绝发布。"
               echo ""
-              echo "**成因**：四项签名 Secret 未配齐时，\`app/build.gradle.kts\` 的 \`useSigning\` 为 false，"
-              echo "AGP 会产出带 \`-unsigned\` 后缀的包。上面表格里标 **未配置** 的那一项补上即可。"
+              echo "**成因有两个，按出现概率排序**："
               echo ""
-              echo "生成方式见 README「生成签名密钥库」一节；Secret 名必须严格一致（大小写敏感）。"
+              echo "1. 四项签名 Secret 未配齐 → \`useSigning\` 为 false → AGP 产出 \`-unsigned\` 包。"
+              echo "   看上面「签名 Secret 检查」表里标 **未配置** 的那一项，补上即可。"
+              echo "2. \`signReleaseV123\` 未注册 → 它要求 \`sdkDir != null\`（来自 ANDROID_HOME 或 local.properties）。"
+              echo "   跑一次「打印构建环境」步骤，确认 \`ANDROID_HOME\` 有值、build-tools 目录里存在 \`37.0.0\`。"
+              echo ""
+              echo "Secret 名必须严格一致（大小写敏感）。"
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::error::没有找到已签名 APK —— 签名 Secret 未配齐（详见本步骤摘要），拒绝发布未签名包。"
             exit 1
